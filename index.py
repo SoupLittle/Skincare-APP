@@ -1,103 +1,124 @@
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
-from kivy.uix.textinput import TextInput
-from kivy.uix.button import Button
+from kivymd.app import MDApp
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.label import MDLabel
+from kivymd.uix.textfield import MDTextField
+from kivymd.uix.button import MDRaisedButton, MDFlatButton
+from kivymd.uix.dialog import MDDialog
 
-
-class SkincareApp(App):
+class SkincareApp(MDApp):
     def build(self):
-        self.title = 'Skincare App'
+        self.theme_cls.primary_palette = "Purple"
+        self.conn = sqlite3.connect('skincare_app.db')  # SQLite database connection
+        self.create_table()
         self.user_id = None
+        self.sm = ScreenManager()
 
-        # Create the main layout
-        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        # Create screens
+        self.sm.add_widget(LoginScreen(name='login'))
+        self.sm.add_widget(HomeScreen(name='home'))
+        self.sm.add_widget(ProfileScreen(name='profile'))
 
-        # Create widgets
-        label = Label(text='Welcome to Skincare App!')
-        preferences_button = Button(text='Set Preferences', on_press=self.set_preferences)
-        add_product_button = Button(text='Add Product', on_press=self.add_product)
-        generate_routine_button = Button(text='Generate Skincare Routine', on_press=self.generate_routine)
+        return self.sm
 
-        # Add widgets to the layout
-        layout.add_widget(label)
-        layout.add_widget(preferences_button)
-        layout.add_widget(add_product_button)
-        layout.add_widget(generate_routine_button)
+    def create_table(self):
+        # Create users table if it doesn't exist
+        with self.conn:
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL
+                )
+            ''')
 
-        return layout
+    def on_stop(self):
+        # Close the database connection when the app is closed
+        self.conn.close()
 
-    def set_preferences(self, instance):
-        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        skin_type_label = Label(text='Enter your skin type:')
-        skin_type_input = TextInput(multiline=False)
-        concerns_label = Label(text='Enter your skincare concerns (comma-separated):')
-        concerns_input = TextInput(multiline=False)
-        save_button = Button(text='Save', on_press=lambda instance: self.save_preferences(
-            skin_type_input.text, concerns_input.text, popup.dismiss))
-        popup_layout.add_widget(skin_type_label)
-        popup_layout.add_widget(skin_type_input)
-        popup_layout.add_widget(concerns_label)
-        popup_layout.add_widget(concerns_input)
-        popup_layout.add_widget(save_button)
 
-        popup = self.create_popup('Set Preferences', popup_layout)
-        popup.open()
+class LoginScreen(Screen):
+    def __init__(self, **kwargs):
+        super(LoginScreen, self).__init__(**kwargs)
 
-    def add_product(self, instance):
-        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        product_name_label = Label(text='Enter the name of the product:')
-        product_name_input = TextInput(multiline=False)
-        product_type_label = Label(text='Enter the type of the product:')
-        product_type_input = TextInput(multiline=False)
-        save_button = Button(text='Save', on_press=lambda instance: self.save_product(
-            product_name_input.text, product_type_input.text, popup.dismiss))
-        popup_layout.add_widget(product_name_label)
-        popup_layout.add_widget(product_name_input)
-        popup_layout.add_widget(product_type_label)
-        popup_layout.add_widget(product_type_input)
-        popup_layout.add_widget(save_button)
+        layout = MDBoxLayout(orientation='vertical', padding=10, spacing=10)
+        self.username_input = MDTextField(hint_text='Username')
+        self.password_input = MDTextField(hint_text='Password', password=True)
+        login_button = MDRaisedButton(text='Login', on_release=self.login)
+        create_user_button = MDRaisedButton(text='Create User', on_release=self.create_user)
+        layout.add_widget(MDLabel(text='Login'))
+        layout.add_widget(self.username_input)
+        layout.add_widget(self.password_input)
+        layout.add_widget(login_button)
+        layout.add_widget(create_user_button)
 
-        popup = self.create_popup('Add Product', popup_layout)
-        popup.open()
+        self.add_widget(layout)
 
-    def generate_routine(self, instance):
-        if self.user_id is None:
-            self.show_popup('Error', 'Please set preferences and add products first.')
+    def login(self, instance):
+        # Implement authentication logic here
+        # Set user_id if login is successful
+        username = self.username_input.text
+        password = self.password_input.text
+
+        with SkincareApp.get_running_app().conn:
+            cursor = SkincareApp.get_running_app().conn.execute('SELECT id FROM users WHERE username=? AND password=?',
+                                                                (username, password))
+            user_id = cursor.fetchone()
+
+        if user_id:
+            SkincareApp.get_running_app().user_id = user_id[0]
+            SkincareApp.get_running_app().sm.current = 'home'
         else:
-            routine = self.skincare_app.generate_routine(user_id=self.user_id)
-            routine_text = "\n".join([f"Step {step}: {product[0]} ({product[1]})" for step, product in enumerate(routine, start=1)])
-            self.show_popup('Skincare Routine', routine_text)
+            self.show_dialog('Error', 'Invalid username or password.')
 
-    def save_preferences(self, skin_type, concerns, dismiss_function):
-        # Save preferences to the database and update the UI
-        self.user_id = 1  # Replace this with the actual user ID from the database
-        self.skincare_app.set_preferences(user_id=self.user_id, skin_type=skin_type, concerns=concerns)
-        dismiss_function()
+    def create_user(self, instance):
+        username = self.username_input.text
+        password = self.password_input.text
 
-    def save_product(self, product_name, product_type, dismiss_function):
-        # Save product to the database and update the UI
-        product_id = self.skincare_app.conn.execute(
-            'INSERT INTO products (name, type, suitable_skin_types, concerns) VALUES (?, ?, ?, ?)',
-            (product_name, product_type, 'All', 'All')
-        ).lastrowid
-        self.skincare_app.add_product(user_id=self.user_id, product_id=product_id)
-        dismiss_function()
+        # Validate username and password
+        if not username or not password:
+            self.show_dialog('Error', 'Please enter both username and password.')
+            return
 
-    def create_popup(self, title, content):
-        from kivy.uix.popup import Popup
-        popup = Popup(title=title, content=content, size_hint=(None, None), size=(400, 300))
-        return popup
+        with SkincareApp.get_running_app().conn:
+            # Check for duplicate username
+            cursor = SkincareApp.get_running_app().conn.execute('SELECT id FROM users WHERE username=?', (username,))
+            existing_user = cursor.fetchone()
+            if existing_user:
+                self.show_dialog('Error', 'Username already exists. Please choose a different one.')
+                return
 
-    def show_popup(self, title, message):
-        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        message_label = Label(text=message)
-        ok_button = Button(text='OK', on_press=lambda instance: popup.dismiss())
-        popup_layout.add_widget(message_label)
-        popup_layout.add_widget(ok_button)
+            # Store the new user in the database
+            SkincareApp.get_running_app().conn.execute('INSERT INTO users (username, password) VALUES (?, ?)',
+                                                       (username, password))
 
-        popup = self.create_popup(title, popup_layout)
-        popup.open()
+        # Inform the user that registration was successful
+        self.show_dialog('Success', 'User registration successful. You can now log in.')
+
+    def show_dialog(self, title, text):
+        dialog = MDDialog(
+            title=title,
+            text=text,
+            size_hint=(0.8, 0.4),
+            buttons=[MDFlatButton(text="OK", on_release=lambda x: dialog.dismiss())],
+        )
+        dialog.open()
+
+
+class HomeScreen(Screen):
+    def __init__(self, **kwargs):
+        super(HomeScreen, self).__init__(**kwargs)
+        layout = MDBoxLayout(orientation='vertical', padding=10, spacing=10)
+        layout.add_widget(MDLabel(text='Home Screen'))
+        self.add_widget(layout)
+
+
+class ProfileScreen(Screen):
+    def __init__(self, **kwargs):
+        super(ProfileScreen, self).__init__(**kwargs)
+        layout = MDBoxLayout(orientation='vertical', padding=10, spacing=10)
+        layout.add_widget(MDLabel(text='Profile Screen'))
+        self.add_widget(layout)
 
 
 if __name__ == '__main__':
