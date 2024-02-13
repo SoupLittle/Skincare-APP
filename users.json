@@ -1,0 +1,10 @@
+{
+    "Marlene": "MakkaPakka",
+    "user2": "password2",
+    "user3": "password3"
+}
+
+{
+    username = "Marlene",
+    password = data["Marlene"]
+}

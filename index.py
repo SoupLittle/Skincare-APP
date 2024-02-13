@@ -1,3 +1,4 @@
+import json
 from kivymd.app import MDApp
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivymd.uix.boxlayout import MDBoxLayout
@@ -9,8 +10,7 @@ from kivymd.uix.dialog import MDDialog
 class SkincareApp(MDApp):
     def build(self):
         self.theme_cls.primary_palette = "Purple"
-        self.conn = sqlite3.connect('skincare_app.db')  # SQLite database connection
-        self.create_table()
+        self.users = {}  # In-memory user database
         self.user_id = None
         self.sm = ScreenManager()
 
@@ -21,21 +21,18 @@ class SkincareApp(MDApp):
 
         return self.sm
 
-    def create_table(self):
-        # Create users table if it doesn't exist
-        with self.conn:
-            self.conn.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT UNIQUE NOT NULL,
-                    password TEXT NOT NULL
-                )
-            ''')
+    def on_start(self):
+        # Load user data from the JSON file on app start
+        try:
+            with open('users.json', 'r') as file:
+                self.users = json.load(file)
+        except FileNotFoundError:
+            pass
 
     def on_stop(self):
-        # Close the database connection when the app is closed
-        self.conn.close()
-
+        # Save user data to the JSON file on app exit
+        with open('users.json', 'w') as file:
+            json.dump(self.users, file)
 
 class LoginScreen(Screen):
     def __init__(self, **kwargs):
@@ -60,13 +57,8 @@ class LoginScreen(Screen):
         username = self.username_input.text
         password = self.password_input.text
 
-        with SkincareApp.get_running_app().conn:
-            cursor = SkincareApp.get_running_app().conn.execute('SELECT id FROM users WHERE username=? AND password=?',
-                                                                (username, password))
-            user_id = cursor.fetchone()
-
-        if user_id:
-            SkincareApp.get_running_app().user_id = user_id[0]
+        if username in SkincareApp.get_running_app().users and SkincareApp.get_running_app().users[username] == password:
+            SkincareApp.get_running_app().user_id = username
             SkincareApp.get_running_app().sm.current = 'home'
         else:
             self.show_dialog('Error', 'Invalid username or password.')
@@ -80,17 +72,13 @@ class LoginScreen(Screen):
             self.show_dialog('Error', 'Please enter both username and password.')
             return
 
-        with SkincareApp.get_running_app().conn:
-            # Check for duplicate username
-            cursor = SkincareApp.get_running_app().conn.execute('SELECT id FROM users WHERE username=?', (username,))
-            existing_user = cursor.fetchone()
-            if existing_user:
-                self.show_dialog('Error', 'Username already exists. Please choose a different one.')
-                return
+        # Check for duplicate username
+        if username in SkincareApp.get_running_app().users:
+            self.show_dialog('Error', 'Username already exists. Please choose a different one.')
+            return
 
-            # Store the new user in the database
-            SkincareApp.get_running_app().conn.execute('INSERT INTO users (username, password) VALUES (?, ?)',
-                                                       (username, password))
+        # Store the new user in the in-memory database
+        SkincareApp.get_running_app().users[username] = password
 
         # Inform the user that registration was successful
         self.show_dialog('Success', 'User registration successful. You can now log in.')
@@ -104,7 +92,6 @@ class LoginScreen(Screen):
         )
         dialog.open()
 
-
 class HomeScreen(Screen):
     def __init__(self, **kwargs):
         super(HomeScreen, self).__init__(**kwargs)
@@ -112,14 +99,12 @@ class HomeScreen(Screen):
         layout.add_widget(MDLabel(text='Home Screen'))
         self.add_widget(layout)
 
-
 class ProfileScreen(Screen):
     def __init__(self, **kwargs):
         super(ProfileScreen, self).__init__(**kwargs)
         layout = MDBoxLayout(orientation='vertical', padding=10, spacing=10)
         layout.add_widget(MDLabel(text='Profile Screen'))
         self.add_widget(layout)
-
 
 if __name__ == '__main__':
     SkincareApp().run()
